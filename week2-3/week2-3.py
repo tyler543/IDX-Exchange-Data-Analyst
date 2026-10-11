@@ -1,31 +1,74 @@
 import pandas as pd
-import os
-import numpy as np
+import matplotlib.pyplot as plt
 
-# load the combined residential listings and sold datasets
 listing_df = pd.read_csv("../../csv/CRMLSListings_Combined_Residential.csv", encoding="latin-1")
 sold_df = pd.read_csv("../../csv/CRMLSSold_combined_residential.csv", encoding="latin-1")
 
-# variables for dtypes, and missing values
-list_dtypes = listing_df.dtypes
-sold_dtypes = sold_df.dtypes
+# fields used for market analysis, everything else is treated as metadata
+num_cols = ["ClosePrice", "ListPrice", "OriginalListPrice", "LivingArea", "LotSizeAcres",
+            "BedroomsTotal", "BathroomsTotalInteger", "DaysOnMarket", "YearBuilt"]
+other_cols = ["CloseDate", "PurchaseContractDate", "ListingContractDate", "PropertyType",
+              "PropertySubType", "CountyOrParish", "MLSAreaMajor", "City", "PostalCode",
+              "Latitude", "Longitude"]
+market_cols = num_cols + other_cols
 
-L_missing_pct = listing_df.isnull().mean() * 100
-listing_missing = L_missing_pct[L_missing_pct >90]
+for name, df in [("listing", listing_df), ("sold", sold_df)]:
+    print(f"----- {name} -----")
 
-S_missing_pct = sold_df.isnull().mean() * 100
-sold_missing = S_missing_pct[S_missing_pct >90]
+    # rows, columns, dtypes
+    print(df.shape)
+    print(df.dtypes)
 
-# prints number of rows and columns, dtypes, and missing value percentages for both datasets
-print(f"Listing shape: {listing_df.shape[0]} rows, {listing_df.shape[1]} columns")
-print(f"Sold shape: {sold_df.shape[0]} rows, {sold_df.shape[1]} columns")
+    # metadata fields (everything that is not a market field)
+    print("metadata fields:", [c for c in df.columns if c not in market_cols])
 
-print(f"dtypes for listing_df:\n{list_dtypes}")
-print(f"dtypes for sold_df:\n{sold_dtypes}")
+    # property types and the residential filter
+    # (already filtered to residential in week 1, so this should remove 0 rows)
+    print(df["PropertyType"].value_counts(dropna=False))
+    df = df[df["PropertyType"] == "Residential"]
+    print("rows after residential filter:", len(df))
 
-print(f"Missing value %s for listing_df:\n{listing_missing}")
-print(f"Missing value %s for sold_df:\n{sold_missing}")
+    # null count and null percent for every column
+    missing = pd.DataFrame({"null_count": df.isnull().sum(), "null_pct": df.isnull().mean() * 100})
+    missing.to_csv(f"{name}_null_summary.csv")
+    print(missing)
 
-# csvs for missing values greater than 90%
-listing_missing.to_csv("listing_missing.csv", header=["missing_pct"])
-sold_missing.to_csv("sold_missing.csv", header=["missing_pct"])
+    # columns over 90% null
+    over_90 = missing[missing["null_pct"] > 90]
+    print(over_90)
+    over_90.to_csv(f"{name}_missing.csv")
+
+    # drop them unless they are core market fields
+    df = df.drop(columns=[c for c in over_90.index if c not in market_cols])
+
+    # numeric summary with percentiles
+    print(df[num_cols].describe(percentiles=[0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]).T)
+
+    # extreme outliers (3 x iqr), counted only, nothing is removed
+    for c in num_cols:
+        q1 = df[c].quantile(0.25)
+        q3 = df[c].quantile(0.75)
+        iqr = q3 - q1
+        outliers = df[(df[c] < q1 - 3 * iqr) | (df[c] > q3 + 3 * iqr)]
+        print(c, "extreme outliers:", len(outliers))
+
+    # histograms and boxplots
+    df[num_cols].hist(bins=50, figsize=(14, 10))
+    plt.savefig(f"{name}_hist.png")
+    df[num_cols].plot(kind="box", subplots=True, layout=(3, 3), figsize=(14, 10))
+    plt.savefig(f"{name}_box.png")
+
+    # suggested questions (sold only)
+    if name == "sold":
+        print("median close price:", df["ClosePrice"].median())
+        print("mean close price:", df["ClosePrice"].mean())
+        print("sold above list %:", (df["ClosePrice"] > df["ListPrice"]).mean() * 100)
+        print("sold below list %:", (df["ClosePrice"] < df["ListPrice"]).mean() * 100)
+        listing_date = pd.to_datetime(df["ListingContractDate"])
+        close_date = pd.to_datetime(df["CloseDate"])
+        print("listing date after close date:", (listing_date > close_date).sum())
+        counties = df.groupby("CountyOrParish")["ClosePrice"].agg(["median", "count"])
+        print(counties[counties["count"] >= 100].sort_values("median", ascending=False).head(10)) 
+
+    # save the filtered dataset
+    df.to_csv(f"../../csv/CRMLS_{name}_filtered_residential.csv", index=False)
