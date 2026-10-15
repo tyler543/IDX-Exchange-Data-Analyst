@@ -1,8 +1,12 @@
 import pandas as pd
+import os
 
 # run week2-3.py first, it creates the filtered files used here
-sold = pd.read_csv("../../csv/CRMLS_sold_filtered_residential.csv", encoding="latin-1")
-listings = pd.read_csv("../../csv/CRMLS_listing_filtered_residential.csv", encoding="latin-1")
+here = os.path.dirname(os.path.abspath(__file__))
+out_folder = os.path.join(here, "..", "..", "output")
+
+sold = pd.read_csv(os.path.join(out_folder, "CRMLS_sold_filtered_residential.csv"), low_memory=False)
+listings = pd.read_csv(os.path.join(out_folder, "CRMLS_listing_filtered_residential.csv"), low_memory=False)
 
 # fetch weekly rates from fred
 url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=MORTGAGE30US"
@@ -31,5 +35,5 @@ print("listings rows with no listing date:", listings["ListingContractDate"].isn
 print(sold_with_rates[["CloseDate", "year_month", "ClosePrice", "rate_30yr_fixed"]].head())
 
 # save both enriched datasets
-sold_with_rates.to_csv("../../csv/CRMLS_sold_with_rates.csv", index=False)
-listings_with_rates.to_csv("../../csv/CRMLS_listing_with_rates.csv", index=False)
+sold_with_rates.to_csv(os.path.join(out_folder, "CRMLS_sold_with_rates.csv"), index=False)
+listings_with_rates.to_csv(os.path.join(out_folder, "CRMLS_listing_with_rates.csv"), index=False)
